@@ -38,11 +38,19 @@ class SourceExclusions(
     fun isURIIncluded(uri: URI) = uri.filePath?.let(this::isPathIncluded) ?: false
 
     /** Tests whether the given path is not excluded. */
-    fun isPathIncluded(file: Path): Boolean = workspaceRoots.any { file.startsWith(it) }
-        && exclusionMatchers.none { matcher ->
-            workspaceRoots
-                .mapNotNull { if (file.startsWith(it)) it.relativize(file) else null }
-                .flatMap { it } // Extract path segments
-                .any(matcher::matches)
-        }
+    fun isPathIncluded(file: Path): Boolean = workspaceRoots.any { root ->
+        file.startsWith(root) && (isGradleGeneratedSource(file, root) || isNotExcluded(file, root))
+    }
+
+    private fun isNotExcluded(file: Path, root: Path): Boolean = exclusionMatchers.none { matcher ->
+        root
+            .relativize(file)
+            .any(matcher::matches)
+    }
+
+    private fun isGradleGeneratedSource(file: Path, root: Path): Boolean {
+        val relative = root.relativize(file)
+        val segments = relative.map { it.toString() }
+        return segments.size >= 2 && segments[0] == "build" && segments[1] == "generated"
+    }
 }
