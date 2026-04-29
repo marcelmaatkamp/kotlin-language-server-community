@@ -23,7 +23,7 @@ import org.javacs.kt.signaturehelp.getDocString
 import org.jetbrains.kotlin.utils.IDEAPluginsCompatibilityAPI
 
 fun hoverAt(file: CompiledFile, cursor: Int): Hover? {
-    val (ref, target) = file.referenceAtPoint(cursor) ?: return typeHoverAt(file, cursor)
+    val (ref, target) = file.referenceAtPoint(cursor) ?: file.referenceExpressionAtPoint(cursor) ?: return typeHoverAt(file, cursor)
     val javaDoc = getDocString(file, cursor)
     val location = ref.textRange
     val hoverText = DECL_RENDERER.render(target)

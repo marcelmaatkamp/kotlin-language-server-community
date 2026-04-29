@@ -118,7 +118,7 @@ class CompilerClassPath(
         LOG.info("Searching for dependencies and Java sources in workspace root {}", root)
 
         workspaceRoots.add(root)
-        javaSourcePath.addAll(findJavaSourceFiles(root))
+        refreshJavaSourcePath()
 
         return refresh()
     }
@@ -127,21 +127,23 @@ class CompilerClassPath(
         LOG.info("Removing dependencies and Java source path from workspace root {}", root)
 
         workspaceRoots.remove(root)
-        javaSourcePath.removeAll(findJavaSourceFiles(root))
+        refreshJavaSourcePath()
 
         return refresh()
     }
 
     fun createdOnDisk(file: Path): Boolean {
         if (isJavaSource(file)) {
-            javaSourcePath.add(file)
+            refreshJavaSourcePath()
+            return refresh(updateClassPath = false, updateBuildScriptClassPath = false, updateJavaSourcePath = true)
         }
         return changedOnDisk(file)
     }
 
     fun deletedOnDisk(file: Path): Boolean {
         if (isJavaSource(file)) {
-            javaSourcePath.remove(file)
+            refreshJavaSourcePath()
+            return refresh(updateClassPath = false, updateBuildScriptClassPath = false, updateJavaSourcePath = true)
         }
         return changedOnDisk(file)
     }
@@ -160,18 +162,95 @@ class CompilerClassPath(
 
     private fun isBuildScript(file: Path): Boolean = file.fileName.toString().let { it == "pom.xml" || it == "build.gradle" || it == "build.gradle.kts" }
 
-    private fun findJavaSourceFiles(root: Path): Set<Path> {
-        val sourceMatcher = FileSystems.getDefault().getPathMatcher("glob:*.java")
-        return SourceExclusions(listOf(root), scriptsConfig)
-            .walkIncluded()
-            .filter { sourceMatcher.matches(it.fileName) }
+    private fun refreshJavaSourcePath() {
+        val newJavaSourcePath = workspaceRoots
+            .flatMap { findJavaSourceRoots(it, scriptsConfig) }
             .toSet()
+
+        syncPaths(javaSourcePath, newJavaSourcePath, "Java source path") { it }
     }
 
     override fun close() {
         compiler.close()
         outputDirectory.delete()
     }
+}
+
+private val JAVA_PACKAGE = Regex("""^\s*package\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*;""")
+
+internal fun findJavaSourceRoots(root: Path, scriptsConfig: ScriptsConfiguration): Set<Path> {
+    val sourceMatcher = FileSystems.getDefault().getPathMatcher("glob:*.java")
+    val roots = SourceExclusions(listOf(root), scriptsConfig)
+        .walkIncluded()
+        .filter { sourceMatcher.matches(it.fileName) }
+        .map(::inferJavaSourceRoot)
+        .toSet()
+
+    return selectAndroidBuildConfigVariants(roots)
+}
+
+private fun inferJavaSourceRoot(file: Path): Path {
+    val parent = file.parent ?: return file
+    val packageName = Files.readAllLines(file)
+        .asSequence()
+        .mapNotNull { JAVA_PACKAGE.find(it)?.groupValues?.get(1) }
+        .firstOrNull() ?: return parent
+
+    val packageSegments = packageName.split('.')
+    if (!endsWithSegments(parent, packageSegments)) return parent
+
+    return dropLastSegments(parent, packageSegments.size)
+}
+
+private fun selectAndroidBuildConfigVariants(roots: Set<Path>): Set<Path> = roots
+    .groupBy { androidBuildConfigGroupRoot(it) }
+    .flatMap { (groupRoot, variantRoots) ->
+        if (groupRoot == null) variantRoots else listOf(preferredAndroidBuildConfigVariant(variantRoots, groupRoot))
+    }
+    .toSet()
+
+private fun preferredAndroidBuildConfigVariant(variantRoots: List<Path>, groupRoot: Path): Path = variantRoots
+    .minWith(compareBy<Path> { androidBuildConfigVariantScore(groupRoot.relativize(it).map { segment -> segment.toString() }.toList()) }
+        .thenBy { it.toString() })
+
+private fun androidBuildConfigVariantScore(variantSegments: List<String>): Int = when {
+    variantSegments.firstOrNull() == "dev" && variantSegments.lastOrNull() == "debug" -> 0
+    variantSegments.lastOrNull() == "debug" -> 1
+    else -> 2
+}
+
+private fun androidBuildConfigGroupRoot(path: Path): Path? {
+    var current: Path? = path
+    while (current != null) {
+        if (current.fileName?.toString() == "buildConfig"
+            && current.parent?.fileName?.toString() == "source"
+            && current.parent?.parent?.fileName?.toString() == "generated"
+            && current.parent?.parent?.parent?.fileName?.toString() == "build") {
+            return current
+        }
+        current = current.parent
+    }
+
+    return null
+}
+
+private fun endsWithSegments(path: Path, segments: List<String>): Boolean {
+    var current: Path? = path
+    for (segment in segments.asReversed()) {
+        if (current?.fileName?.toString() != segment) return false
+        current = current.parent
+    }
+
+    return true
+}
+
+private fun dropLastSegments(path: Path, count: Int): Path {
+    var current = path
+    repeat(count) {
+        current = current.parent ?: current
+    }
+
+    return current
 }
 
 private fun logAdded(sources: Collection<Path>, name: String) {

@@ -87,3 +87,12 @@ class HoverAcrossFilesTest : LanguageServerTestFixture("hover") {
         assertThat(contents.value, containsString("fun target(): Unit"))
     }
 }
+
+class AndroidGeneratedBuildConfigHoverTest : SingleFileTestFixture("androidGeneratedBuildConfig", "app/src/main/java/nl/marcelmaatkamp/ergomi/UseConfig.kt") {
+    @Test fun `resolve AppBuildConfig hover across generated Java source`() {
+        val hover = languageServer.textDocumentService.hover(hoverParams(file, 4, 26)).get()!!
+        val contents = hover.contents.right
+
+        assertThat(contents.value, containsString("object AppBuildConfig"))
+    }
+}

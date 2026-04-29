@@ -78,3 +78,11 @@ class DiagnosticTest : SingleFileTestFixture("diagnostic", "Diagnostics.kt") {
         languageServer.textDocumentService.lintRecompilationCallback = {}
     }
 }
+
+class AndroidGeneratedBuildConfigDiagnosticTest : SingleFileTestFixture("androidGeneratedBuildConfig", "app/src/main/java/nl/marcelmaatkamp/ergomi/AppBuildConfig.kt") {
+    @Test fun `resolves Android generated Java BuildConfig`() {
+        languageServer.textDocumentService.debounceLint.waitForPendingTask()
+
+        assertThat(errors.map { it.message }, not(hasItem(containsString("Unresolved reference: BuildConfig"))))
+    }
+}

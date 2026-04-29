@@ -39,7 +39,7 @@ class SourceExclusions(
 
     /** Tests whether the given path is not excluded. */
     fun isPathIncluded(file: Path): Boolean = workspaceRoots.any { root ->
-        file.startsWith(root) && (isGradleGeneratedSource(file, root) || isNotExcluded(file, root))
+        file.startsWith(root) && (isGradleGeneratedSource(file, root) || isGradleGeneratedSourceParent(file, root) || isNotExcluded(file, root))
     }
 
     private fun isNotExcluded(file: Path, root: Path): Boolean = exclusionMatchers.none { matcher ->
@@ -49,8 +49,16 @@ class SourceExclusions(
     }
 
     private fun isGradleGeneratedSource(file: Path, root: Path): Boolean {
-        val relative = root.relativize(file)
-        val segments = relative.map { it.toString() }
-        return segments.size >= 2 && segments[0] == "build" && segments[1] == "generated"
+        val segments = root.relativize(file).map { it.toString() }
+        return segments.windowed(2).any { it[0] == "build" && it[1] == "generated" }
+    }
+
+    private fun isGradleGeneratedSourceParent(file: Path, root: Path): Boolean {
+        if (!file.toFile().isDirectory) return false
+
+        val segments = root.relativize(file).map { it.toString() }
+        return segments.withIndex().any { (index, segment) ->
+            segment == "build" && (index == segments.lastIndex || segments.getOrNull(index + 1) == "generated")
+        }
     }
 }

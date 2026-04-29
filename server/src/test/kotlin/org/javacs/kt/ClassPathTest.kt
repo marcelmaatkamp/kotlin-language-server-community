@@ -44,4 +44,14 @@ class ClassPathTest {
     @Test fun `find kotlin stdlib`() {
         assertThat(findKotlinStdlib(), notNullValue())
     }
+
+    @Test fun `find Android generated Java source roots`() {
+        val workspaceRoot = testResourcesRoot().resolve("androidGeneratedBuildConfig")
+        val javaSourceRoots = findJavaSourceRoots(workspaceRoot, ScriptsConfiguration())
+            .map { workspaceRoot.relativize(it).toString() }
+
+        assertThat(javaSourceRoots, hasItem("app/build/generated/source/buildConfig/dev/debug"))
+        assertThat(javaSourceRoots, not(hasItem("app/build/generated/source/buildConfig/prod/release")))
+        assertThat(javaSourceRoots, not(hasItem(containsString("BuildConfig.java"))))
+    }
 }
